@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>水果記憶遊戲</title>
+
+<style>
+body{
+margin:0;
+font-family:"Comic Sans MS",sans-serif;
+text-align:center;
+background:linear-gradient(#a8e6ff,#ffffff);
+}
+
+/* 標題 */
+h1{
+font-size:36px;
+color:#ff6699;
+margin:10px;
+}
+
+#timer{
+font-size:20px;
+margin:5px;
+color:#333;
+}
+
+/* 按鈕 */
+button{
+padding:10px 18px;
+margin:4px;
+border:none;
+border-radius:12px;
+font-size:16px;
+cursor:pointer;
+background:#ffd166;
+color:#333;
+}
+#startBtn{
+background:#ff6699;
+color:white;
+font-size:20px;
+padding:10px 30px;
+}
+
+/* 難度 */
+#difficulty{
+margin:5px;
+}
+#difficulty button.active{
+background:#ff6699;
+color:white;
+}
+
+/* 遊戲板 */
+#gameBoard{
+display:grid;
+grid-template-columns:repeat(5,1fr);
+gap:10px;
+max-width:650px;
+margin:10px auto;
+padding:10px;
+}
+
+/* 卡片 */
+.card{
+width:100%;
+aspect-ratio:1/1;
+perspective:800px;
+}
+
+.inner{
+width:100%;
+height:100%;
+position:relative;
+transition:transform .6s;
+transform-style:preserve-3d;
+}
+
+.card.flip .inner{
+transform:rotateY(180deg);
+}
+
+.front,.back{
+position:absolute;
+width:100%;
+height:100%;
+border-radius:12px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:50px;
+backface-visibility:hidden;
+}
+
+.front{ background:#f5f3ed; }
+.back{ background:white; transform:rotateY(180deg); }
+
+/* 我的水果 */
+#hand{
+margin-top:5px;
+min-height: 50px;
+flex-wrap:nowrap;
+overflow-x:auto;
+justify-content:flex-start;
+gap:5px;
+padding:5px 10px;
+max-width:100%;
+}
+#hand .card{ transform:scale(.45); flex:0 0 auto; }
+
+/* 煙火 */
+#fireworks{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+pointer-events:none;
+}
+
+/* RWD */
+@media(max-width:700px){
+#gameBoard{ grid-template-columns:repeat(4,1fr); }
+.front,.back{ font-size:40px; }
+}
+@media(max-width:400px){
+#gameBoard{ grid-template-columns:repeat(3,1fr); }
+.front,.back{ font-size:34px; }
+}
+</style>
+</head>
+
+<body>
+
+<h1>🍓 水果記憶遊戲 🍌</h1>
+<div id="timer">準備開始</div>
+
+<div id="difficulty">
+<button onclick="setDifficulty(6,this)">簡單</button>
+<button onclick="setDifficulty(10,this)">普通</button>
+<button onclick="setDifficulty(15,this)">困難</button>
+</div>
+
+<button id="startBtn">開始遊戲</button>
+
+<div id="gameBoard"></div>
+
+<h3>我的水果</h3>
+<div id="hand"></div>
+
+<canvas id="fireworks"></canvas>
+
+<script>
+/* 水果 */
+const fruits=[
+{icon:"🍎",name:"apple"},{icon:"🍌",name:"banana"},
+{icon:"🍇",name:"grape"},{icon:"🍉",name:"watermelon"},
+{icon:"🍓",name:"strawberry"},{icon:"🍍",name:"pineapple"},
+{icon:"🥝",name:"kiwi"},{icon:"🍑",name:"peach"},
+{icon:"🍒",name:"cherry"},{icon:"🍋",name:"lemon"},
+{icon:"🥭",name:"mango"},{icon:"🍐",name:"pear"},
+{icon:"🍊",name:"orange"},{icon:"🫐",name:"blueberry"},
+{icon:"🍈",name:"melon"}
+];
+
+/* 遊戲變數 */
+let pairCount=10;
+let cards=[];
+let first=null;
+let second=null;
+let lock=false;
+let matched=0;
+
+let countdown=10;
+let gameTime=0;
+let timerInterval;
+
+const board=document.getElementById("gameBoard");
+const timer=document.getElementById("timer");
+const difficultyButtons=document.querySelectorAll("#difficulty button");
+
+/* 難度選擇 */
+function setDifficulty(n, btn){
+pairCount=n;
+/* 清除其他按鈕 active */
+difficultyButtons.forEach(b=>b.classList.remove("active"));
+btn.classList.add("active");
+}
+
+/* 洗牌 */
+function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}}
+
+/* 發音 */
+function speak(text){ let msg=new SpeechSynthesisUtterance(text); msg.lang="en-US"; speechSynthesis.speak(msg); }
+
+/* 建立卡片 */
+function createBoard(){
+board.innerHTML="";
+cards=[...fruits.slice(0,pairCount),...fruits.slice(0,pairCount)];
+shuffle(cards);
+
+cards.forEach((fruit)=>{
+let card=document.createElement("div");
+card.className="card";
+
+let inner=document.createElement("div");
+inner.className="inner";
+
+let front=document.createElement("div");
+front.className="front"; front.innerHTML="？";
+let back=document.createElement("div");
+back.className="back"; back.innerHTML=fruit.icon;
+
+inner.appendChild(front); inner.appendChild(back);
+card.appendChild(inner);
+card.data=fruit;
+
+card.addEventListener("click",()=>flip(card));
+card.addEventListener("touchstart",()=>flip(card));
+
+board.appendChild(card);
+card.classList.add("flip");
+});
+
+startCountdown();
+}
+
+/* 翻牌 */
+function flip(card){
+if(lock || card.classList.contains("flip")) return;
+if(card===first) return;
+
+card.classList.add("flip");
+speak(card.data.name);
+
+if(!first){ first=card; return; }
+second=card;
+lock=true;
+
+if(first.data.icon===second.data.icon){
+setTimeout(()=>{
+collect(first); collect(second);
+matched++;
+reset();
+if(matched===pairCount){ finishGame(); }
+},500);
+}else{
+setTimeout(()=>{ first.classList.remove("flip"); second.classList.remove("flip"); reset(); },900);
+}
+}
+
+/* 收集水果 */
+function collect(card){
+let clone=card.cloneNode(true);
+clone.classList.add("flip");
+document.getElementById("hand").appendChild(clone);
+card.style.visibility="hidden";
+}
+
+/* 重置 */
+function reset(){ first=null; second=null; lock=false; }
+
+/* 記憶倒數 */
+function startCountdown(){
+countdown=10;
+timer.innerText="記憶時間: "+countdown;
+timerInterval=setInterval(()=>{
+countdown--;
+timer.innerText="記憶時間: "+countdown;
+if(countdown<=0){
+clearInterval(timerInterval);
+document.querySelectorAll(".card").forEach(c=>c.classList.remove("flip"));
+startGameTimer();
+}
+},1000);
+}
+
+/* 遊戲計時 */
+function startGameTimer(){
+gameTime=0;
+timerInterval=setInterval(()=>{
+gameTime++;
+timer.innerText="遊戲時間: "+gameTime+" 秒";
+},1000);
+}
+
+/* 完成遊戲 */
+function finishGame(){
+clearInterval(timerInterval);
+fireworks();
+alert("完成時間 "+gameTime+" 秒！");
+document.getElementById("startBtn").style.display="inline-block";
+}
+
+/* 開始遊戲 */
+document.getElementById("startBtn").onclick=()=>{
+matched=0;
+document.getElementById("hand").innerHTML="";
+document.getElementById("startBtn").style.display="none";
+createBoard();
+};
+
+/* 煙火 */
+function fireworks(){
+const canvas=document.getElementById("fireworks");
+const ctx=canvas.getContext("2d");
+canvas.width=window.innerWidth;
+canvas.height=window.innerHeight;
+let particles=[];
+for(let i=0;i<120;i++){
+particles.push({x:canvas.width/2,y:canvas.height/2,vx:(Math.random()-0.5)*10,vy:(Math.random()-0.5)*10,life:100});
+}
+function animate(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+particles.forEach(p=>{p.x+=p.vx; p.y+=p.vy; p.life--; ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fillStyle="hsl("+Math.random()*360+",100%,50%)"; ctx.fill();});
+particles=particles.filter(p=>p.life>0);
+if(particles.length>0){requestAnimationFrame(animate);}
+}
+animate();
+}
+</script>
+
+</body>
+</html>
